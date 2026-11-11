@@ -1,45 +1,110 @@
-# Cargo Dependency Graph Visualizer
+# Визуализатор графа зависимостей Cargo
 
-A Python CLI application that reads Cargo package metadata, traverses the
-dependency graph and creates D2 diagrams with PNG export.
+Консольное приложение на Python для получения метаданных пакетов Cargo,
+построения графа зависимостей алгоритмом BFS и экспорта диаграммы D2
+в изображение PNG.
 
-## Development stages
+## Соответствие этапам задания
 
-1. CLI configuration and validation.
-2. Direct dependency retrieval from a Cargo registry.
-3. Iterative BFS traversal, substring filtering and cycle handling.
-4. Reverse dependency traversal.
-5. D2 diagram generation and PNG export.
-
-## Requirements
-
-- Python 3.10 or newer.
-- D2 CLI for PNG export (required from stage 5 onward).
-- Internet access for the real crates.io mode.
-
-The Python application uses only the standard library. It does not invoke
-Cargo or use a package-manager library to retrieve dependency information.
-It accesses the public crates.io HTTP API directly and sends a descriptive
-User-Agent. Requests are spaced by at least one second.
-
-## Command-line options
-
-| Option | Meaning |
+| Этап | Реализованные возможности |
 | --- | --- |
-| `--package` | Name of the package to analyse. |
-| `--repo` | HTTPS registry URL or local JSON path in test mode. |
-| `--test-mode` | Read the local test repository instead of using HTTP. |
-| `--version` | Exact version of the root package. |
-| `--output` | PNG output path (default: `dependency-graph.png`). |
-| `--filter` | Ignore package names containing this case-sensitive text. |
-| `--reverse` | Traverse reverse dependencies (added in stage 4). |
+| 1 | Параметры командной строки, проверка значений и вывод настроек в формате ключ — значение |
+| 2 | Получение прямых зависимостей точной версии корневого пакета |
+| 3 | Нерекурсивный BFS, фильтрация по подстроке и обработка циклов |
+| 4 | Поиск прямых и транзитивных обратных зависимостей с помощью BFS |
+| 5 | Создание описания D2, экспорт PNG, три примера диаграмм и сравнение с Cargo |
 
-## Test repository
+## Требования
 
-The test repository is a JSON adjacency list. Each key is a package and its
-array contains the packages it directly depends on. Test package names must
-contain uppercase Latin letters only. Every referenced package must have its
-own key, including packages without dependencies.
+- Python 3.10 или новее.
+- Установленная программа D2, доступная в `PATH` под именем `d2`, для экспорта PNG.
+- Доступ к интернету для работы с реальным crates.io.
+
+Приложение на Python использует только стандартную библиотеку. Для получения
+сведений о зависимостях оно не запускает Cargo, другие менеджеры пакетов
+или сторонние Python-пакеты. Программа напрямую обращается к публичному
+HTTP API crates.io с помощью `urllib`, разбирает JSON стандартным модулем
+`json` и выдерживает интервал не менее одной секунды между запросами.
+
+D2 применяется только для отрисовки текстового описания диаграммы. Сбор
+данных, построение графа и обход его рёбер выполняет само приложение.
+
+## Структура проекта
+
+```text
+.
+├── README.md
+├── .gitignore
+├── run.bat
+├── run.sh
+├── src/
+│   ├── main.py
+│   ├── config.py
+│   ├── models.py
+│   ├── repository.py
+│   ├── cargo_registry.py
+│   ├── semver.py
+│   ├── graph.py
+│   └── visualization.py
+├── tests/
+│   ├── data/
+│   │   ├── repository.json
+│   │   ├── simple.json
+│   │   ├── cycle.json
+│   │   └── branching.json
+│   └── test_*.py
+└── examples/
+    ├── diagrams/
+    │   ├── A.d2
+    │   ├── B.d2
+    │   ├── C.d2
+    │   └── README.md
+    └── cargo-tree-check/
+        ├── Cargo.toml
+        └── src/main.rs
+```
+
+## Основные модули и функции
+
+| Модуль | Назначение и основные функции |
+| --- | --- |
+| `main.py` | `build_parser()` объявляет параметры CLI; `main()` управляет запуском и кодами завершения. |
+| `config.py` | `validate_config()` проверяет все шесть параметров задания. |
+| `models.py` | `Package` хранит пару «имя — версия»; `Dependency` описывает ребро зависимости. |
+| `repository.py` | `TestRepository.load()` читает JSON; `direct_dependencies()` и `package_dependencies()` возвращают прямые связи; `reverse_dependencies()` возвращает входящие связи. |
+| `cargo_registry.py` | `CratesIoClient.direct_dependencies()` читает выбранную версию; `package_dependencies()` предоставляет связи для BFS; `reverse_dependencies()` читает обратный индекс реестра. |
+| `semver.py` | `parse_version()` разбирает версию; `matches_requirement()` проверяет поддерживаемые диапазоны Cargo. |
+| `graph.py` | `build_dependency_graph()` выполняет итеративный BFS; `has_cycle()` обнаруживает циклы; `format_graph()` и `graph_counts()` готовят отчёт. |
+| `visualization.py` | `build_d2_source()` создаёт текст D2; `write_d2_file()` сохраняет его; `render_png()` запускает D2 и проверяет PNG. |
+
+Вспомогательные закрытые функции проверяют отдельные поля, разбирают
+ответы API, сопоставляют диапазоны версий и форматируют записи графа.
+
+## Параметры командной строки
+
+| Параметр | Обязательный | Назначение |
+| --- | --- | --- |
+| `--package` | Да | Имя анализируемого пакета. |
+| `--repo` | Да | HTTPS-адрес реестра Cargo или путь к локальному JSON-файлу. |
+| `--test-mode` | Нет | Читать локальный тестовый репозиторий вместо обращения по HTTP. |
+| `--version` | Да | Точная версия корневого пакета. |
+| `--output` | Нет | Путь для PNG; по умолчанию `dependency-graph.png`. |
+| `--filter` | Нет | Не учитывать имена пакетов, содержащие эту подстроку с учётом регистра. |
+| `--reverse` | Нет | Построить граф обратных зависимостей. |
+
+После проверки программа выводит все шесть параметров задания в формате
+`ключ = значение`. Флаг `--reverse` включает дополнительную операцию
+четвёртого этапа.
+
+## Источник данных и выбор версий
+
+### Тестовый режим
+
+Тестовый репозиторий — это JSON-список смежности. Каждый ключ обозначает
+пакет, а массив содержит пакеты, от которых он непосредственно зависит.
+Имена пакетов должны состоять только из заглавных латинских букв. Каждый
+пакет, на который ссылаются связи, должен иметь собственный ключ в файле,
+в том числе пакет без зависимостей.
 
 ```json
 {
@@ -51,85 +116,222 @@ own key, including packages without dependencies.
 }
 ```
 
-The sample intentionally contains the cycle `B -> D -> E -> B` and repeated
-reachability of `D` and `E`.
+В примере есть цикл `B -> D -> E -> B` и несколько путей, ведущих к одним
+и тем же пакетам. Остальные тестовые файлы содержат простой граф, отдельный
+цикл и ветвящийся граф с листом, который можно исключить фильтром.
 
-## Stage 1: configuration
+### Реальный режим Cargo
+
+Клиент запрашивает в API crates.io сведения об указанной версии корневого
+пакета. Для каждой записи о зависимости он читает имя crate и требование
+Cargo к версии, загружает список опубликованных версий и выбирает самую
+новую не отозванную версию, которая удовлетворяет этому требованию.
+Запросы содержат информативный `User-Agent` и ограничиваются по частоте.
+
+Локальный обработчик версий поддерживает распространённые требования Cargo:
+caret (в том числе вариант по умолчанию), tilde, подстановочные знаки,
+точные версии и операторы сравнения. Поддерживаются также сравнения,
+разделённые запятыми, и предварительные версии. Это не полная копия
+разрешителя Cargo. В частности, программа независимо выбирает подходящую
+версию для каждого ребра зависимости и не выполняет глобальное объединение
+версий, разрешение feature-флагов или разрешение `Cargo.lock`.
+
+Метаданные опубликованных зависимостей могут содержать обычные зависимости,
+зависимости для сборки и разработки, необязательные зависимости и
+зависимости для отдельных целевых платформ. Эта информация сохраняется
+в метаданных графа. Поскольку вершина графа соответствует идентификатору
+пакета, повторяющиеся связи с одной и той же версией отображаются один раз.
+
+Конечная точка обратных зависимостей crates.io работает на уровне crate
+и не ограничивается точной версией корневого пакета из `--version`.
+Она возвращает зависимые пакеты из индекса реестра, а не список зависимостей
+для конкретного файла `Cargo.lock`. Это ограничение следует учитывать
+при интерпретации результата обратного обхода.
+
+## Запуск приложения
+
+### Windows (PowerShell)
 
 ```powershell
-python -m src.main --package A --repo tests/data/repository.json `
+.\run.bat --package A --repo tests\data\repository.json `
+  --test-mode --version 1.0.0 --output generated\A.png
+```
+
+### macOS / Linux
+
+```sh
+sh run.sh --package A --repo tests/data/repository.json \
+  --test-mode --version 1.0.0 --output generated/A.png
+```
+
+Программа выводит шесть параметров конфигурации, прямые зависимости,
+достижимую часть графа, число вершин и рёбер, а также сведения о циклах.
+Затем рядом с выбранным PNG сохраняется описание D2 и запускается D2
+для создания изображения. Если D2 не установлен, программа всё равно
+прочитает данные, построит граф и сохранит файл `.d2`, но завершится
+с понятным сообщением об отсутствии D2 и кодом `2`. PNG в этом случае
+не создаётся. Для запуска автоматических тестов D2 не требуется.
+
+### Этап 1. Конфигурация
+
+Разборщик командной строки принимает все шесть параметров задания.
+Проверка отклоняет пустое или недопустимое имя пакета, некорректный URL
+реестра или отсутствующий тестовый файл, неверную версию, путь вывода
+без расширения `.png` и явно переданный пустой фильтр. В тестовом режиме
+дополнительно проверяются заглавные латинские имена пакетов и путь к JSON.
+
+Пример:
+
+```powershell
+python -m src.main --package A --repo tests\data\repository.json `
   --test-mode --version 1.0.0 --output graph.png
 ```
 
-The CLI validates the settings and prints the six task parameters as
-key-value pairs.
+### Этап 2. Прямые зависимости
 
-## Stage 2: direct dependencies
+В тестовом режиме программа читает JSON и перед продолжением построения
+графа выводит только прямые зависимости выбранного пакета. Для пакета A
+это B и C.
 
-Test mode reads the JSON file and prints only the selected package's direct
-dependencies:
-
-```powershell
-python -m src.main --package A --repo tests/data/repository.json `
-  --test-mode --version 1.0.0
-```
-
-Real mode uses the crates.io API directly:
+В реальном режиме используется API crates.io:
 
 ```powershell
 python -m src.main --package serde --repo https://crates.io `
-  --version 1.0.228
+  --version 1.0.228 --output generated\serde.png
 ```
 
-For each Cargo requirement, the client chooses the newest non-yanked crate
-version that matches the requirement. The local SemVer evaluator supports
-caret/default, tilde, wildcard, exact and comparison requirements, including
-comma-separated comparisons and prereleases. It does not implement Cargo's
-full workspace-wide resolver or feature unification; this limitation matters
-when comparing the resulting graph with `cargo tree`.
+### Этап 3. Полный граф, BFS и фильтрация
 
-The API metadata includes normal, build and dev dependencies, optional
-entries and dependencies for declared target platforms. These entries are
-kept so that the graph represents the published manifest metadata. The
-selected build graph of a particular Cargo project can be narrower.
+Обход выполняется очередью FIFO без рекурсии. Каждый пакет раскрывается
+один раз. Все найденные рёбра сохраняются, включая ребро, замыкающее цикл;
+множество `visited` предотвращает бесконечный обход.
 
-## Stage 3: full graph, BFS and filtering
-
-The graph is traversed iteratively with a FIFO queue. A package is expanded
-only once, but every discovered dependency edge is retained, including an
-edge that closes a cycle. The `visited` set prevents endless traversal.
+Фильтрация учитывает регистр символов и удаляет совпавшие вершины вместе
+со всеми связанными с ними рёбрами. Исключённый пакет не раскрывается,
+поэтому его зависимости не посещаются. Корневой пакет нельзя исключить
+фильтром. После BFS выполняется обнаружение циклов в достижимом графе.
 
 ```powershell
-python -m src.main --package A --repo tests/data/repository.json `
-  --test-mode --version 1.0.0 --filter D
+python -m src.main --package A --repo tests\data\repository.json `
+  --test-mode --version 1.0.0 --filter D --output generated\A-filtered.png
 ```
 
-Filtering is case-sensitive and removes matching package nodes and their
-incident edges from the analysis. The selected root package cannot be
-filtered out. A filtered node is not expanded, so its own dependencies are
-not visited. Cycle detection is reported separately after the BFS pass.
+### Этап 4. Обратные зависимости
 
-The test fixtures include an ordinary graph (`simple.json`), a cycle
-(`cycle.json`), a branching graph (`branching.json`) and a graph combining
-branches, repeated reachability and a cycle (`repository.json`).
-
-## Stage 4: reverse dependencies
-
-Pass `--reverse` to start from the selected package and walk the edges in
-the opposite direction. The first list contains direct dependents; the graph
-also includes transitive dependents. In test mode the JSON adjacency list is
-reversed locally. In real mode the client reads the crates.io
-`reverse_dependencies` endpoint and continues the BFS for every discovered
-crate. The public endpoint is crate-wide, so reverse results are not limited
-to a single version of the selected crate.
+Флаг `--reverse` включает обход графа в обратном направлении. В первом
+списке выводятся прямые зависимые пакеты, а затем BFS находит транзитивные
+обратные зависимости. В тестовом режиме список смежности JSON разворачивается
+локально. В реальном режиме клиент читает конечную точку
+`reverse_dependencies` crates.io и продолжает BFS для каждого найденного
+crate.
 
 ```powershell
-python -m src.main --package E --repo tests/data/repository.json `
-  --test-mode --version 1.0.0 --reverse
+python -m src.main --package E --repo tests\data\repository.json `
+  --test-mode --version 1.0.0 --reverse --output generated\E-reverse.png
 ```
 
-## Tests
+### Этап 5. D2 и PNG
+
+Приложение записывает файл `.d2` рядом с запрошенным `.png`, затем выполняет
+команду `d2 input.d2 output.png`. Оно проверяет сигнатуру PNG и выводит
+понятную ошибку, если D2 не установлен или отрисовка завершилась неудачно.
+
+Установите D2 по официальной инструкции для Windows, macOS или Linux:
+[руководство по установке D2](https://d2lang.com/tour/install/).
+На Windows на официальной странице релизов доступны готовые установщики.
+После установки откройте новый терминал и проверьте команду:
 
 ```powershell
-python -m unittest discover -v
+d2 version
 ```
+
+#### Три примера визуализации
+
+Текстовые диаграммы в `examples/diagrams/` созданы по тестовому
+репозиторию. Для построения графов от трёх разных пакетов выполните:
+
+```powershell
+python -m src.main --package A --repo tests\data\repository.json `
+  --test-mode --version 1.0.0 --output generated\A.png
+python -m src.main --package B --repo tests\data\repository.json `
+  --test-mode --version 1.0.0 --output generated\B.png
+python -m src.main --package C --repo tests\data\repository.json `
+  --test-mode --version 1.0.0 --output generated\C.png
+```
+
+Команды создают `generated/A.d2`, `generated/B.d2`, `generated/C.d2`
+и соответствующие PNG-файлы. PNG и автоматически созданные диаграммы
+игнорируются Git, так как правила репозитория запрещают хранить бинарные
+и сгенерированные файлы. Три исходных примера D2 сохранены в
+`examples/diagrams/` для просмотра.
+
+#### Сравнение со штатным деревом Cargo
+
+В `examples/cargo-tree-check/` находится небольшой отдельный проект Cargo.
+Он фиксирует корневую зависимость на ту же версию `serde`, что используется
+в примере реального режима. При установленном Rust/Cargo и доступе к сети
+выполните:
+
+```powershell
+cargo tree --manifest-path examples/cargo-tree-check/Cargo.toml `
+  --target all -e normal,build,dev
+cargo tree --manifest-path examples/cargo-tree-check/Cargo.toml `
+  --target all -i serde
+```
+
+Сравните поддерево `serde` из первой команды с графом, который приложение
+построило для `serde 1.0.228`. Вторая команда показывает обратное дерево
+в пределах временного проекта Cargo.
+
+Результаты не обязаны полностью совпадать. `cargo tree` использует
+разрешитель Cargo, включённые возможности (features), целевую платформу
+и контекст файла блокировки. По умолчанию он показывает обычные зависимости,
+зависимости сборки и разработки для целевой платформы хоста. В примере
+используется `--target all`, чтобы показать зависимости для разных платформ.
+Обратный вывод ограничен временным проектом Cargo, тогда как обратный режим
+этого приложения начинает обход с индекса обратных зависимостей crates.io
+и может находить пакеты со всего реестра.
+
+Приложение читает опубликованные метаданные зависимостей, учитывает
+необязательные и платформенно-зависимые записи и независимо выбирает
+самую новую подходящую версию для каждого ребра. Оно не выполняет полное
+разрешение версий и возможностей проекта. Кроме того, Cargo по умолчанию
+помечает повторные пакеты как `(*)`, а это приложение хранит уникальные
+вершины и все различные ориентированные рёбра. Этим объясняются возможные
+различия в составе узлов и версиях пакетов.
+
+## Сборка и тестирование
+
+Приложение написано на чистом Python и не требует отдельного этапа сборки.
+Запускайте его из корневой папки репозитория с помощью `run.bat` в Windows
+или `run.sh` в macOS/Linux. Для проверки синтаксиса Python без запуска
+приложения выполните:
+
+```powershell
+python -m compileall -q src tests
+```
+
+Сторонний тестовый фреймворк не требуется. Запустите стандартные тесты
+Python из корневой папки репозитория в PowerShell:
+
+```powershell
+py -3 -m unittest discover -s tests -v
+```
+
+Также поддерживается стандартный поиск тестов без явного указания папки:
+
+```powershell
+py -3 -m unittest discover -v
+```
+
+Тесты проверяют конфигурацию, некорректные тестовые репозитории,
+сопоставление требований Cargo к версиям, имитированные ответы crates.io,
+BFS, циклы, фильтрацию, обратный обход, генерацию D2 и обработку ошибок
+при создании PNG. Сетевые запросы и исполняемый файл D2 в автоматических
+тестах заменяются имитациями.
+
+## История Git
+
+Каждый этап разработки зафиксирован отдельным коммитом в формате
+Conventional Commits. Небольшие исправления объединены с коммитом
+соответствующего этапа.

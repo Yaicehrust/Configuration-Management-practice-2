@@ -1,4 +1,4 @@
-"""Command-line entry point for dependency analysis."""
+"""Точка входа приложения анализа зависимостей."""
 
 import argparse
 import sys
@@ -14,10 +14,13 @@ from src.graph import (
 )
 from src.models import Dependency, Package
 from src.repository import RepositoryFormatError, TestRepository
+from src.visualization import (
+    VisualizationError, render_png, write_d2_file,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """Create the command-line parser and declare all user options."""
+    """Создаёт разборщик командной строки и объявляет параметры."""
     parser = argparse.ArgumentParser(
         description="Build and visualize a Cargo package dependency graph."
     )
@@ -44,7 +47,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def print_config(config: Config) -> None:
-    """Print the six configurable task parameters as key-value pairs."""
+    """Выводит шесть настраиваемых параметров в формате ключ — значение."""
     values = (
         ("package", config.package),
         ("repository", config.repository),
@@ -60,7 +63,7 @@ def print_config(config: Config) -> None:
 def print_dependencies(
     package: Package, dependencies: list[Dependency]
 ) -> None:
-    """Print direct dependency names, requirements and Cargo edge types."""
+    """Выводит имена прямых зависимостей, требования и типы связей Cargo."""
     print(f"\nDirect dependencies of {package.label}:")
     if not dependencies:
         print("  (none)")
@@ -70,7 +73,7 @@ def print_dependencies(
 
 
 def _format_dependency(item: Dependency) -> str:
-    """Format one dependency edge for human-readable terminal output."""
+    """Форматирует одно ребро зависимости для вывода в терминал."""
     markers = [item.kind]
     if item.optional:
         markers.append("optional")
@@ -84,14 +87,14 @@ def _format_dependency(item: Dependency) -> str:
 
 
 def _load_source(config: Config) -> TestRepository | CratesIoClient:
-    """Create the selected data source without changing graph logic."""
+    """Создаёт источник данных, не меняя логику построения графа."""
     if config.test_mode:
         return TestRepository.load(config.repository)
     return CratesIoClient(config.repository)
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Parse settings, load direct dependencies and report data errors."""
+    """Разбирает настройки, загружает прямые зависимости и ошибки."""
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
@@ -113,8 +116,16 @@ def main(argv: list[str] | None = None) -> int:
             package, getter, config.filter_substring
         )
         _print_graph_report(graph, title)
+        d2_path = write_d2_file(graph, config.output)
+        png_path = render_png(d2_path, config.output)
+        print(f"\nD2 source: {d2_path}")
+        print(f"PNG image: {png_path}")
     except (
-        ConfigurationError, RepositoryFormatError, RegistryError, GraphError
+        ConfigurationError,
+        RepositoryFormatError,
+        RegistryError,
+        GraphError,
+        VisualizationError,
     ) as error:
         print(f"Error: {error}", file=sys.stderr)
         return 2
@@ -124,7 +135,7 @@ def main(argv: list[str] | None = None) -> int:
 def print_reverse_dependencies(
     package: Package, dependents: list[Package]
 ) -> None:
-    """Print packages that directly depend on the selected package."""
+    """Выводит пакеты, напрямую зависящие от выбранного пакета."""
     print(f"\nDirect reverse dependencies of {package.label}:")
     if not dependents:
         print("  (none)")
@@ -136,7 +147,7 @@ def print_reverse_dependencies(
 def _print_graph_report(
     graph: dict[Package, list[Package]], title: str
 ) -> None:
-    """Print the reachable graph and report cycle handling."""
+    """Выводит достижимый граф и сообщает о наличии циклов."""
     nodes, edges = graph_counts(graph)
     print(f"\n{title}:")
     print(format_graph(graph))

@@ -1,4 +1,4 @@
-"""Reader for the local JSON repository used by the test mode."""
+"""Чтение локального JSON-репозитория в тестовом режиме."""
 
 import json
 from pathlib import Path
@@ -11,18 +11,19 @@ PACKAGE_NAME_RE = re.compile(r"^[A-Z]+$")
 
 
 class RepositoryFormatError(ValueError):
-    """Raised when a local test repository has an invalid structure."""
+    """Возникает, если структура локального тестового репозитория неверна."""
 
 
 class TestRepository:
-    """Load a directed graph whose package names are uppercase letters."""
+    """Загружает ориентированный граф с именами пакетов заглавными буквами."""
 
     def __init__(self, dependencies: dict[str, list[str]]) -> None:
+        """Инициализирует объект."""
         self.dependencies = dependencies
 
     @classmethod
     def load(cls, path: str | Path) -> "TestRepository":
-        """Read and validate a JSON adjacency list from a local file."""
+        """Читает и проверяет список смежности JSON из локального файла."""
         source = Path(path)
         try:
             data = json.loads(source.read_text(encoding="utf-8"))
@@ -34,7 +35,7 @@ class TestRepository:
         return cls(_validate_graph_data(data))
 
     def direct_dependencies(self, package: Package) -> list[Dependency]:
-        """Return the immediate dependencies of a test package."""
+        """Возвращает непосредственные зависимости тестового пакета."""
         names = self.dependencies.get(package.name)
         if names is None:
             raise RepositoryFormatError(
@@ -52,13 +53,13 @@ class TestRepository:
         ]
 
     def package_dependencies(self, package: Package) -> list[Package]:
-        """Return package identities for graph traversal."""
+        """Возвращает идентификаторы пакетов для обхода графа."""
         return [
             item.package for item in self.direct_dependencies(package)
         ]
 
     def reverse_dependencies(self, package: Package) -> list[Package]:
-        """Return direct dependents from the reversed local test graph."""
+        """Возвращает прямые обратные зависимости из локального графа."""
         if package.name not in self.dependencies:
             raise RepositoryFormatError(
                 f"Package {package.name} is absent from the test repository."
@@ -69,11 +70,11 @@ class TestRepository:
         ]
 
     def package_names(self) -> set[str]:
-        """Return all package names in the local repository."""
+        """Возвращает имена всех пакетов локального репозитория."""
         return set(self.dependencies)
 
     def reverse_adjacency(self) -> dict[str, list[str]]:
-        """Build an adjacency list with every dependency edge reversed."""
+        """Строит список смежности с обратным направлением всех рёбер."""
         reverse = {name: [] for name in self.dependencies}
         for package, names in self.dependencies.items():
             for dependency in names:
@@ -85,7 +86,7 @@ class TestRepository:
 
 
 def _validate_graph_data(data: object) -> dict[str, list[str]]:
-    """Validate uppercase package names and all referenced vertices."""
+    """Проверяет заглавные имена пакетов и все упомянутые вершины."""
     if not isinstance(data, dict) or not data:
         message = "Repository must be a non-empty JSON object."
         raise RepositoryFormatError(message)
@@ -109,7 +110,7 @@ def _validate_graph_data(data: object) -> dict[str, list[str]]:
 
 
 def _validate_references(graph: dict[str, list[str]]) -> None:
-    """Ensure every edge points to a package declared in the file."""
+    """Проверяет, что каждое ребро ведёт к пакету из файла."""
     known = set(graph)
     referenced = {item for values in graph.values() for item in values}
     missing = sorted(referenced - known)

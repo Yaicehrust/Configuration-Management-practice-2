@@ -1,4 +1,4 @@
-"""Non-recursive breadth-first traversal of package dependency graphs."""
+"""Нерекурсивный обход графа зависимостей поиском в ширину (BFS)."""
 
 from collections import deque
 from collections.abc import Callable, Iterable
@@ -11,7 +11,7 @@ DependencyGetter = Callable[[Package], Iterable[Package]]
 
 
 class GraphError(ValueError):
-    """Raised when the requested graph cannot be constructed."""
+    """Возникает, если невозможно построить запрошенный граф."""
 
 
 def build_dependency_graph(
@@ -19,7 +19,7 @@ def build_dependency_graph(
     get_dependencies: DependencyGetter,
     filter_substring: str | None = None,
 ) -> DependencyGraph:
-    """Build all reachable edges with iterative breadth-first search."""
+    """Строит достижимую часть графа итеративным алгоритмом BFS."""
     _validate_root_filter(root, filter_substring)
     graph: DependencyGraph = {}
     visited = {root}
@@ -37,7 +37,7 @@ def build_dependency_graph(
 def _validate_root_filter(
     root: Package, filter_substring: str | None
 ) -> None:
-    """Reject a filter that removes the package selected for analysis."""
+    """Запрещает фильтр, исключающий выбранный для анализа пакет."""
     if filter_substring and filter_substring in root.name:
         raise GraphError("The filter excludes the selected root package.")
 
@@ -45,7 +45,7 @@ def _validate_root_filter(
 def _filtered_dependencies(
     dependencies: Iterable[Package], filter_substring: str | None
 ) -> list[Package]:
-    """Remove ignored names and duplicate edges, then sort deterministically."""
+    """Удаляет исключённые имена и повторные рёбра, затем сортирует их."""
     unique = set(dependencies)
     if filter_substring:
         unique = {
@@ -60,7 +60,7 @@ def _enqueue_new_nodes(
     queue: deque[Package],
     graph: DependencyGraph,
 ) -> None:
-    """Queue each new package once while retaining every graph edge."""
+    """Добавляет пакет в очередь один раз, сохраняя все рёбра графа."""
     for dependency in dependencies:
         graph.setdefault(dependency, [])
         if dependency not in visited:
@@ -69,13 +69,13 @@ def _enqueue_new_nodes(
 
 
 def has_cycle(graph: DependencyGraph) -> bool:
-    """Detect a directed cycle using Kahn's queue-based algorithm."""
+    """Находит ориентированный цикл алгоритмом Кана с очередью."""
     indegree = {package: 0 for package in graph}
     for dependencies in graph.values():
         for dependency in dependencies:
             indegree[dependency] += 1
     queue = deque(
-        package for package, degree in indegree.items() if degree == 0
+        package for package, degree in indegree.items() if not degree
     )
     processed = 0
     while queue:
@@ -83,18 +83,18 @@ def has_cycle(graph: DependencyGraph) -> bool:
         processed += 1
         for dependency in graph[current]:
             indegree[dependency] -= 1
-            if indegree[dependency] == 0:
+            if not indegree[dependency]:
                 queue.append(dependency)
     return processed != len(graph)
 
 
 def graph_counts(graph: DependencyGraph) -> tuple[int, int]:
-    """Return the number of unique package nodes and directed edges."""
+    """Возвращает число уникальных вершин и ориентированных рёбер."""
     return len(graph), sum(len(items) for items in graph.values())
 
 
 def format_graph(graph: DependencyGraph) -> str:
-    """Format every node and its direct outgoing edges for the console."""
+    """Форматирует вершины и исходящие рёбра для вывода в консоль."""
     lines = []
     for package in sorted(graph):
         lines.append(f"{package.label}:")

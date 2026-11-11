@@ -1,1 +1,1 @@
-"""Dependency graph visualizer for Cargo packages."""
+"""Визуализатор графа зависимостей пакетов Cargo."""

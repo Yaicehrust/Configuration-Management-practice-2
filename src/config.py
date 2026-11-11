@@ -1,4 +1,4 @@
-"""Command-line configuration and input validation."""
+"""Настройки командной строки и проверка входных данных."""
 
 from dataclasses import dataclass
 from pathlib import Path
@@ -11,12 +11,12 @@ TEST_PACKAGE_PATTERN = re.compile(r"^[A-Z]+$")
 
 
 class ConfigurationError(ValueError):
-    """Raised when a command-line option has an invalid value."""
+    """Возникает, если параметр командной строки содержит неверное значение."""
 
 
 @dataclass(frozen=True)
 class Config:
-    """Validated settings supplied by the user."""
+    """Проверенные настройки, переданные пользователем."""
 
     package: str
     repository: str
@@ -27,7 +27,7 @@ class Config:
 
 
 def validate_config(args: object) -> Config:
-    """Validate parsed arguments and return an immutable configuration."""
+    """Проверяет аргументы и возвращает неизменяемую конфигурацию."""
     package = _validate_package(args.package, args.test_mode)
     repository = _validate_repository(args.repo, args.test_mode)
     version = _validate_version(args.version)
@@ -44,7 +44,7 @@ def validate_config(args: object) -> Config:
 
 
 def _validate_package(value: str, test_mode: bool) -> str:
-    """Validate a package name for the selected repository mode."""
+    """Проверяет имя пакета с учётом выбранного режима репозитория."""
     if not value or not PACKAGE_PATTERN.fullmatch(value):
         message = "package must contain letters, digits, '-' or '_'."
         raise ConfigurationError(message)
@@ -56,16 +56,26 @@ def _validate_package(value: str, test_mode: bool) -> str:
 
 
 def _validate_repository(value: str, test_mode: bool) -> str:
-    """Validate a local test file or an HTTPS registry URL."""
+    """Проверяет локальный тестовый файл или HTTPS-адрес реестра."""
     if not value or not value.strip():
         raise ConfigurationError("repo must not be empty.")
     if test_mode:
-        path = Path(value).expanduser()
-        if path.suffix.lower() != ".json":
-            raise ConfigurationError("test repository must be a .json file.")
-        if not path.is_file():
-            raise ConfigurationError(f"test repository not found: {path}")
-        return str(path.resolve())
+        return _validate_test_repository(value)
+    return _validate_registry_url(value)
+
+
+def _validate_test_repository(value: str) -> str:
+    """Проверяет путь к JSON-файлу тестового режима."""
+    path = Path(value).expanduser()
+    if path.suffix.lower() != ".json":
+        raise ConfigurationError("test repository must be a .json file.")
+    if not path.is_file():
+        raise ConfigurationError(f"test repository not found: {path}")
+    return str(path.resolve())
+
+
+def _validate_registry_url(value: str) -> str:
+    """Проверяет базовый HTTPS-адрес API Cargo без параметров URL."""
     parsed = urlparse(value)
     if parsed.scheme != "https" or not parsed.netloc:
         raise ConfigurationError("repo must be a valid HTTPS registry URL.")
@@ -79,7 +89,7 @@ def _validate_repository(value: str, test_mode: bool) -> str:
 
 
 def _validate_version(value: str) -> str:
-    """Require an exact semantic version for the selected root package."""
+    """Требует точную семантическую версию корневого пакета."""
     try:
         parse_version(value)
     except ValueError as error:
@@ -89,7 +99,7 @@ def _validate_version(value: str) -> str:
 
 
 def _validate_output(value: str) -> Path:
-    """Require a PNG output path with a usable parent directory."""
+    """Проверяет путь PNG и доступность родительского каталога."""
     if not value or not value.strip():
         raise ConfigurationError("output must not be empty.")
     path = Path(value).expanduser()
@@ -103,7 +113,7 @@ def _validate_output(value: str) -> Path:
 
 
 def _validate_filter(value: str | None) -> str | None:
-    """Reject an explicitly empty filter while allowing no filter."""
+    """Отклоняет пустой фильтр, но допускает отсутствие фильтра."""
     if value is not None and not value.strip():
         raise ConfigurationError("filter must not be empty when provided.")
     return value

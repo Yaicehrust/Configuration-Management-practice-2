@@ -1,8 +1,14 @@
-"""A small Cargo-compatible semantic-version requirement evaluator."""
+"""Небольшой обработчик требований Cargo к семантическим версиям."""
 
 from dataclasses import dataclass
 from functools import total_ordering
 import re
+
+
+ZERO_COMPONENT = 0
+SINGLE_COMPONENT = 1
+TWO_COMPONENTS = 2
+SINGLE_DIGIT_LENGTH = 1
 
 
 VERSION_RE = re.compile(
@@ -20,7 +26,7 @@ PARTIAL_RE = re.compile(
 @total_ordering
 @dataclass(frozen=True)
 class SemVer:
-    """A parsed semantic version without build metadata."""
+    """Разобранная семантическая версия без метаданных сборки."""
 
     major: int
     minor: int
@@ -28,6 +34,7 @@ class SemVer:
     prerelease: tuple[str, ...] = ()
 
     def __lt__(self, other: object) -> bool:
+        """Сравнивает семантические версии."""
         if not isinstance(other, SemVer):
             return NotImplemented
         left = (self.major, self.minor, self.patch)
@@ -38,7 +45,7 @@ class SemVer:
 
 
 def parse_version(value: str) -> SemVer:
-    """Parse an exact three-component semantic version."""
+    """Разбирает точную семантическую версию из трёх компонентов."""
     match = VERSION_RE.fullmatch(value)
     if match is None:
         raise ValueError(f"Invalid semantic version: {value}")
@@ -53,7 +60,7 @@ def parse_version(value: str) -> SemVer:
 
 
 def matches_requirement(version: str, requirement: str) -> bool:
-    """Return whether an exact version satisfies a Cargo requirement."""
+    """Проверяет соответствие точной версии требованию Cargo."""
     candidate = parse_version(version)
     pieces = [part.strip() for part in requirement.split(",")]
     if not pieces or any(not part for part in pieces):
@@ -64,7 +71,7 @@ def matches_requirement(version: str, requirement: str) -> bool:
 
 
 def _prerelease_less(left: tuple[str, ...], right: tuple[str, ...]) -> bool:
-    """Compare SemVer prerelease identifiers according to SemVer 2.0."""
+    """Сравнивает идентификаторы предварительных версий по SemVer 2.0."""
     if not left or not right:
         return bool(left) and not right
     for first, second in zip(left, right):
@@ -81,18 +88,23 @@ def _prerelease_less(left: tuple[str, ...], right: tuple[str, ...]) -> bool:
 
 
 def _validate_prerelease(parts: tuple[str, ...]) -> None:
-    """Reject empty or zero-padded numeric prerelease identifiers."""
+    """Отклоняет пустые и дополненные нулями числовые идентификаторы."""
     for part in parts:
         if not part:
             raise ValueError("Empty prerelease identifier.")
-        if part.isdigit() and len(part) > 1 and part.startswith("0"):
+        has_leading_zero = (
+            part.isdigit()
+            and len(part) > SINGLE_DIGIT_LENGTH
+            and part.startswith("0")
+        )
+        if has_leading_zero:
             raise ValueError(
                 "Numeric prerelease identifiers cannot have zeros."
             )
 
 
 def _parse_partial(value: str) -> tuple[tuple[int, ...], tuple[str, ...]]:
-    """Parse one-, two- or three-component versions used in ranges."""
+    """Разбирает версии из одного, двух или трёх компонентов."""
     value = value.split("+", 1)[0]
     match = PARTIAL_RE.fullmatch(value)
     if match is None:
@@ -107,13 +119,17 @@ def _parse_partial(value: str) -> tuple[tuple[int, ...], tuple[str, ...]]:
 
 
 def _matches_piece(candidate: SemVer, piece: str) -> bool:
-    """Evaluate a single comma-separated Cargo requirement piece."""
+    """Проверяет одну часть требования Cargo, разделённого запятыми."""
     match = re.match(r"^(>=|<=|>|<|=|\^|~)?\s*(.+)$", piece)
     if match is None:
         raise ValueError(f"Invalid Cargo requirement piece: {piece}")
     operator = match.group(1) or "^"
     value = match.group(2).strip()
-    if "*" in value or "x" in value.lower():
+    components = value.split(".")
+    has_wildcard = any(
+        part.lower() in ("x", "*") for part in components
+    )
+    if has_wildcard:
         return _matches_wildcard(candidate, operator, value)
     parts, prerelease = _parse_partial(value)
     bound = _make_bound(parts, prerelease)
@@ -121,7 +137,7 @@ def _matches_piece(candidate: SemVer, piece: str) -> bool:
 
 
 def _make_bound(parts: tuple[int, ...], pre: tuple[str, ...]) -> SemVer:
-    """Fill omitted minor and patch components with zeroes."""
+    """Заполняет отсутствующие компоненты minor и patch нулями."""
     numbers = (*parts, 0, 0)
     return SemVer(numbers[0], numbers[1], numbers[2], pre)
 
@@ -132,7 +148,7 @@ def _compare_requirement(
     bound: SemVer,
     parts: tuple[int, ...],
 ) -> bool:
-    """Apply comparison, caret or tilde semantics to a parsed bound."""
+    """Применяет правила сравнения, caret или tilde к границе версии."""
     if operator == ">=":
         return candidate >= bound
     if operator == ">":
@@ -150,23 +166,23 @@ def _compare_requirement(
 def _matches_partial_exact(
     candidate: SemVer, bound: SemVer, precision: int
 ) -> bool:
-    """Match exact comparators with the specified component precision."""
+    """Сопоставляет точные версии с учётом числа заданных компонентов."""
     actual = (candidate.major, candidate.minor, candidate.patch)
     expected = (bound.major, bound.minor, bound.patch)
     return actual[:precision] == expected[:precision]
 
 
 def _upper_bound(parts: tuple[int, ...], operator: str) -> SemVer:
-    """Calculate the exclusive upper bound of caret or tilde ranges."""
+    """Вычисляет исключающую верхнюю границу диапазона caret или tilde."""
     bound = _make_bound(parts, ())
     major, minor, patch = bound.major, bound.minor, bound.patch
     if operator == "~":
-        return SemVer(major + 1, 0, 0) if len(parts) == 1 else SemVer(
-            major, minor + 1, 0
-        )
-    if major > 0 or len(parts) == 1:
+        if len(parts) == SINGLE_COMPONENT:
+            return SemVer(major + 1, 0, 0)
+        return SemVer(major, minor + 1, 0)
+    if major > ZERO_COMPONENT or len(parts) == SINGLE_COMPONENT:
         return SemVer(major + 1, 0, 0)
-    if minor > 0 or len(parts) == 2:
+    if minor > ZERO_COMPONENT or len(parts) == TWO_COMPONENTS:
         return SemVer(0, minor + 1, 0)
     return SemVer(0, 0, patch + 1)
 
@@ -174,7 +190,7 @@ def _upper_bound(parts: tuple[int, ...], operator: str) -> SemVer:
 def _matches_wildcard(
     candidate: SemVer, operator: str, value: str
 ) -> bool:
-    """Handle wildcard ranges such as 1.* and 1.2.*."""
+    """Обрабатывает диапазоны с подстановкой, например 1.* и 1.2.*."""
     if operator not in ("^", "="):
         raise ValueError("Wildcard ranges cannot use comparison operators.")
     parts = value.split(".")
@@ -183,7 +199,12 @@ def _matches_wildcard(
          if part.lower() in ("x", "*")),
         len(parts),
     )
-    if wildcard_at == 0:
+    if any(
+        part.lower() not in ("x", "*")
+        for part in parts[wildcard_at:]
+    ):
+        raise ValueError("Wildcard must be the final version component.")
+    if wildcard_at == ZERO_COMPONENT:
         return True
     numbers = tuple(int(part) for part in parts[:wildcard_at])
     lower = _make_bound(numbers, ())
@@ -192,8 +213,8 @@ def _matches_wildcard(
 
 
 def _wildcard_upper(parts: tuple[int, ...]) -> SemVer:
-    """Return the next major or minor boundary for a wildcard range."""
-    if len(parts) == 1:
+    """Возвращает следующую границу major или minor для диапазона с *."""
+    if len(parts) == SINGLE_COMPONENT:
         return SemVer(parts[0] + 1, 0, 0)
     return SemVer(parts[0], parts[1] + 1, 0)
 
@@ -201,7 +222,7 @@ def _wildcard_upper(parts: tuple[int, ...]) -> SemVer:
 def _allows_prerelease(
     candidate: SemVer, pieces: list[str]
 ) -> bool:
-    """Allow prereleases only when a requirement names that release line."""
+    """Допускает prerelease только при явном указании этой линии версий."""
     core = (candidate.major, candidate.minor, candidate.patch)
     for piece in pieces:
         match = re.search(r"(\d+)\.(\d+)\.(\d+)-", piece)

@@ -1,4 +1,4 @@
-"""Direct crates.io API access without Cargo or third-party packages."""
+"""Прямой доступ к API crates.io без Cargo и сторонних пакетов."""
 
 import json
 import time
@@ -13,6 +13,10 @@ from src.semver import SemVer, matches_requirement, parse_version
 PAGE_SIZE = 100
 REQUEST_INTERVAL = 1.0
 REQUEST_TIMEOUT = 20
+MIN_DELAY_SECONDS = 0.0
+HTTP_NOT_FOUND = 404
+HTTP_TOO_MANY_REQUESTS = 429
+HTTP_SERVER_ERROR_MIN = 500
 USER_AGENT = (
     "CargoDependencyGraphVisualizer/1.0 "
     "(https://github.com/Yaicehrust/Configuration-Management-pract-2)"
@@ -20,13 +24,14 @@ USER_AGENT = (
 
 
 class RegistryError(RuntimeError):
-    """Raised when crates.io cannot provide valid package metadata."""
+    """Возникает, когда crates.io не возвращает корректные данные пакета."""
 
 
 class CratesIoClient:
-    """Read Cargo crate metadata through the public crates.io HTTP API."""
+    """Получает сведения о пакете Cargo через публичный HTTP API crates.io."""
 
     def __init__(self, repository_url: str) -> None:
+        """Инициализирует объект."""
         self.base_url = _api_base(repository_url)
         self._last_request = 0.0
         self._versions: dict[str, list[dict[str, object]]] = {}
@@ -34,24 +39,29 @@ class CratesIoClient:
         self._reverse: dict[str, list[Package]] = {}
 
     def direct_dependencies(self, package: Package) -> list[Dependency]:
-        """Read and resolve every declared dependency of one exact version."""
+        """Получает и разрешает зависимости указанной версии пакета."""
         if package in self._dependencies:
             return self._dependencies[package]
         payload = self._request_json(self._crate_url(package, "dependencies"))
         records = payload.get("dependencies")
         if not isinstance(records, list):
             raise RegistryError("Registry response has no dependencies array.")
-        dependencies = [self._resolve_dependency(item) for item in records]
+        dependencies = [
+        self._resolve_dependency(item)
+        for item in records
+        if isinstance(item, dict)
+        and item.get("kind") in ("normal", "build", None)
+]
         dependencies.sort(key=lambda item: item.package)
         self._dependencies[package] = dependencies
         return dependencies
 
     def package_dependencies(self, package: Package) -> list[Package]:
-        """Return resolved direct dependency package identities."""
+        """Возвращает пакеты, выбранные для прямых зависимостей."""
         return [item.package for item in self.direct_dependencies(package)]
 
     def reverse_dependencies(self, package: Package) -> list[Package]:
-        """Return direct crates that have a published dependency on package."""
+        """Возвращает пакеты, напрямую зависящие от указанного пакета."""
         if package.name in self._reverse:
             return self._reverse[package.name]
         dependents = self._load_reverse_dependencies(package.name)
@@ -59,7 +69,7 @@ class CratesIoClient:
         return dependents
 
     def _resolve_dependency(self, record: object) -> Dependency:
-        """Convert one API dependency record into a resolved edge."""
+        """Преобразует запись API о зависимости в ребро графа."""
         if not isinstance(record, dict):
             message = "Registry returned an invalid dependency record."
             raise RegistryError(message)
@@ -79,7 +89,7 @@ class CratesIoClient:
         )
 
     def _select_version(self, name: str, requirement: str) -> str:
-        """Choose the newest non-yanked release satisfying a Cargo range."""
+        """Выбирает новейшую версию, подходящую под требование Cargo."""
         versions = self._load_versions(name)
         candidates = [
             str(item["num"])
@@ -95,42 +105,59 @@ class CratesIoClient:
         return max(candidates, key=parse_version)
 
     def _load_versions(self, name: str) -> list[dict[str, object]]:
-        """Fetch version pages until the registry's total is reached."""
+        """Загружает страницы версий до получения всех записей реестра."""
         if name in self._versions:
             return self._versions[name]
+
         versions: list[dict[str, object]] = []
-        page = 1
-        total: int | None = None
-        while total is None or len(versions) < total:
-            items, page_total = self._fetch_versions_page(name, page)
+        next_page: str | None = None
+        seen_pages: set[str] = set()
+
+        while True:
+            items, next_page = self._fetch_versions_page(name, next_page)
             versions.extend(items)
-            if total is None:
-                total = page_total
-            if len(items) < PAGE_SIZE:
+
+            if next_page is None:
                 break
-            page += 1
+            if next_page in seen_pages:
+                raise RegistryError(f"Repeated pagination link for {name}.")
+            seen_pages.add(next_page)
+
         self._versions[name] = versions
         return versions
-
+    
     def _fetch_versions_page(
-        self, name: str, page: int
-    ) -> tuple[list[dict[str, object]], int | None]:
+        self, name: str, next_page: str | None
+    ) -> tuple[list[dict[str, object]], str | None]:
         """Получает и проверяет одну страницу опубликованных версий."""
-        query = urlencode({"page": page, "per_page": PAGE_SIZE})
         url = self._crate_url(Package(name, "0.0.0"), "versions")
-        payload = self._request_json(f"{url}?{query}")
+        if next_page is None:
+            query = urlencode({"per_page": PAGE_SIZE})
+            url = f"{url}?{query}"
+        else:
+            url = f"{url}{next_page}"
+
+        payload = self._request_json(url)
         items = payload.get("versions")
         if not isinstance(items, list):
             raise RegistryError(f"Invalid versions response for {name}.")
+
         valid_items = [item for item in items if isinstance(item, dict)]
         meta = payload.get("meta", {})
         if not isinstance(meta, dict):
             return valid_items, None
-        total = meta.get("total")
-        return valid_items, total if isinstance(total, int) else None
+
+        next_page = meta.get("next_page")
+        if not isinstance(next_page, str) or not next_page:
+            return valid_items, None
+        if not next_page.startswith("?"):
+            raise RegistryError(f"Invalid pagination link for {name}.")
+        return valid_items, next_page
+
+    
 
     def _load_reverse_dependencies(self, name: str) -> list[Package]:
-        """Read all pages and select one published version per dependent."""
+        """Читает все страницы и выбирает версию каждого зависимого пакета."""
         dependents: dict[str, list[str]] = {}
         page = 1
         total: int | None = None
@@ -158,7 +185,7 @@ class CratesIoClient:
     def _collect_reverse_page(
         payload: dict[str, object], collected: dict[str, list[str]]
     ) -> None:
-        """Map reverse-dependency records to dependent crate versions."""
+        """Связывает записи обратных зависимостей с версиями пакетов."""
         records = payload.get("dependencies")
         versions = payload.get("versions")
         if not isinstance(records, list) or not isinstance(versions, list):
@@ -169,20 +196,10 @@ class CratesIoClient:
             if isinstance(item, dict) and isinstance(item.get("id"), int)
         }
         for record in records:
-            if not isinstance(record, dict):
-                continue
-            version = version_map.get(record.get("version_id"))
-            if not isinstance(version, dict):
-                continue
-            if version.get("yanked", False):
-                continue
-            crate = version.get("crate")
-            number = version.get("num")
-            if isinstance(crate, str) and isinstance(number, str):
-                collected.setdefault(crate, []).append(number)
+            _collect_reverse_record(record, version_map, collected)
 
     def _crate_url(self, package: Package, suffix: str) -> str:
-        """Build a URL for a crate or crate-version API subresource."""
+        """Формирует URL для пакета или его версии в API."""
         name = quote(package.name, safe="")
         version = quote(package.version, safe="")
         path = f"crates/{name}/{version}/{suffix}"
@@ -191,18 +208,25 @@ class CratesIoClient:
         return urljoin(self.base_url, path)
 
     def _request_json(self, url: str) -> dict[str, object]:
-        """Perform a rate-limited request and decode the JSON response."""
+        """Отправляет запрос с ограничением частоты и разбирает JSON-ответ."""
         self._wait_for_rate_limit()
         request = Request(url, headers={"User-Agent": USER_AGENT})
         try:
             with urlopen(request, timeout=REQUEST_TIMEOUT) as response:
-                content = response.read().decode("utf-8")
+                raw_content = response.read()
         except HTTPError as error:
             raise _http_error(error) from error
         except URLError as error:
             raise RegistryError(f"Network error: {error.reason}") from error
         except TimeoutError as error:
             raise RegistryError("Registry request timed out.") from error
+        except OSError as error:
+            raise RegistryError(f"Network I/O error: {error}") from error
+        try:
+            content = raw_content.decode("utf-8")
+        except UnicodeDecodeError as error:
+            message = "Registry response is not valid UTF-8."
+            raise RegistryError(message) from error
         try:
             payload = json.loads(content)
         except json.JSONDecodeError as error:
@@ -212,16 +236,33 @@ class CratesIoClient:
         return payload
 
     def _wait_for_rate_limit(self) -> None:
-        """Keep requests at or below one request per second."""
+        """Ограничивает частоту запросов: не более одного в секунду."""
         now = time.monotonic()
         delay = REQUEST_INTERVAL - (now - self._last_request)
-        if delay > 0:
+        if delay > MIN_DELAY_SECONDS:
             time.sleep(delay)
         self._last_request = time.monotonic()
 
 
+def _collect_reverse_record(
+    record: object,
+    version_map: dict[object, dict[str, object]],
+    collected: dict[str, list[str]],
+) -> None:
+    """Добавляет доступную версию зависимого пакета из ответа API."""
+    if not isinstance(record, dict):
+        return
+    version = version_map.get(record.get("version_id"))
+    if not isinstance(version, dict) or version.get("yanked", False):
+        return
+    crate = version.get("crate")
+    number = version.get("num")
+    if isinstance(crate, str) and isinstance(number, str):
+        collected.setdefault(crate, []).append(number)
+
+
 def _api_base(repository_url: str) -> str:
-    """Normalize a Cargo registry URL to its API base path."""
+    """Приводит URL реестра Cargo к базовому адресу API."""
     base = repository_url.rstrip("/")
     if base.endswith("/api/v1"):
         return f"{base}/"
@@ -229,7 +270,7 @@ def _api_base(repository_url: str) -> str:
 
 
 def _matches_version_safely(version: str, requirement: str) -> bool:
-    """Treat unsupported or malformed versions as non-matching releases."""
+    """Считает неподдерживаемые и некорректные версии неподходящими."""
     try:
         return matches_requirement(version, requirement)
     except ValueError:
@@ -237,12 +278,12 @@ def _matches_version_safely(version: str, requirement: str) -> bool:
 
 
 def _http_error(error: HTTPError) -> RegistryError:
-    """Translate common HTTP status codes into actionable messages."""
-    if error.code == 404:
+    """Преобразует распространённые HTTP-ошибки в понятные сообщения."""
+    if error.code == HTTP_NOT_FOUND:
         message = "Package or package version was not found in crates.io."
-    elif error.code == 429:
+    elif error.code == HTTP_TOO_MANY_REQUESTS:
         message = "crates.io rate limit reached; wait and try again."
-    elif error.code >= 500:
+    elif error.code >= HTTP_SERVER_ERROR_MIN:
         message = f"crates.io server error: HTTP {error.code}."
     else:
         message = f"crates.io request failed: HTTP {error.code}."

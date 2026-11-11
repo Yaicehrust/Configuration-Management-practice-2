@@ -1,12 +1,32 @@
+# Байткод Python и файлы результатов тестов
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
 .coverage
 htmlcov/
+*.egg-info/
+
+# Виртуальные окружения и локальные настройки
 .venv/
 venv/
 .env
 .vscode/
 .idea/
+
+# Результаты сборки и сгенерированные файлы
+build/
+dist/
+generated/
 *.png
 *.svg
+*.d2
+!examples/diagrams/
+!examples/diagrams/*.d2
+examples/cargo-tree-check/Cargo.lock
+
+# Служебные файлы операционной системы
+.DS_Store
+Thumbs.db
