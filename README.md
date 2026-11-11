@@ -93,6 +93,26 @@ entries and dependencies for declared target platforms. These entries are
 kept so that the graph represents the published manifest metadata. The
 selected build graph of a particular Cargo project can be narrower.
 
+## Stage 3: full graph, BFS and filtering
+
+The graph is traversed iteratively with a FIFO queue. A package is expanded
+only once, but every discovered dependency edge is retained, including an
+edge that closes a cycle. The `visited` set prevents endless traversal.
+
+```powershell
+python -m src.main --package A --repo tests/data/repository.json `
+  --test-mode --version 1.0.0 --filter D
+```
+
+Filtering is case-sensitive and removes matching package nodes and their
+incident edges from the analysis. The selected root package cannot be
+filtered out. A filtered node is not expanded, so its own dependencies are
+not visited. Cycle detection is reported separately after the BFS pass.
+
+The test fixtures include an ordinary graph (`simple.json`), a cycle
+(`cycle.json`), a branching graph (`branching.json`) and a graph combining
+branches, repeated reachability and a cycle (`repository.json`).
+
 ## Tests
 
 ```powershell

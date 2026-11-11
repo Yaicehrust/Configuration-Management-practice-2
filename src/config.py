@@ -24,7 +24,6 @@ class Config:
     version: str
     output: Path
     filter_substring: str | None
-    reverse: bool = False
 
 
 def validate_config(args: object) -> Config:
@@ -41,7 +40,6 @@ def validate_config(args: object) -> Config:
         version=version,
         output=output,
         filter_substring=filter_text,
-        reverse=getattr(args, "reverse", False),
     )
 
 

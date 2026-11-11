@@ -51,6 +51,23 @@ class TestRepository:
             for name in names
         ]
 
+    def package_dependencies(self, package: Package) -> list[Package]:
+        """Return package identities for graph traversal."""
+        return [
+            item.package for item in self.direct_dependencies(package)
+        ]
+
+    def reverse_dependencies(self, package: Package) -> list[Package]:
+        """Return direct dependents from the reversed local test graph."""
+        if package.name not in self.dependencies:
+            raise RepositoryFormatError(
+                f"Package {package.name} is absent from the test repository."
+            )
+        return [
+            Package(name, package.version)
+            for name in self.reverse_adjacency()[package.name]
+        ]
+
     def package_names(self) -> set[str]:
         """Return all package names in the local repository."""
         return set(self.dependencies)

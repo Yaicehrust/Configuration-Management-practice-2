@@ -5,6 +5,13 @@ import sys
 
 from src.cargo_registry import CratesIoClient, RegistryError
 from src.config import Config, ConfigurationError, validate_config
+from src.graph import (
+    GraphError,
+    build_dependency_graph,
+    format_graph,
+    graph_counts,
+    has_cycle,
+)
 from src.models import Dependency, Package
 from src.repository import RepositoryFormatError, TestRepository
 
@@ -29,9 +36,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--filter", default=None, help="Ignore names containing text."
-    )
-    parser.add_argument(
-        "--reverse", action="store_true", help="Show reverse dependencies."
     )
     return parser
 
@@ -94,10 +98,26 @@ def main(argv: list[str] | None = None) -> int:
         package = Package(config.package, config.version)
         dependencies = source.direct_dependencies(package)
         print_dependencies(package, dependencies)
-    except (ConfigurationError, RepositoryFormatError, RegistryError) as error:
+        graph = build_dependency_graph(
+            package, source.package_dependencies, config.filter_substring
+        )
+        _print_graph_report(graph)
+    except (
+        ConfigurationError, RepositoryFormatError, RegistryError, GraphError
+    ) as error:
         print(f"Error: {error}", file=sys.stderr)
         return 2
     return 0
+
+
+def _print_graph_report(graph: dict[Package, list[Package]]) -> None:
+    """Print the full reachable graph and report cycle handling."""
+    nodes, edges = graph_counts(graph)
+    print("\nDependency graph:")
+    print(format_graph(graph))
+    print(f"\nPackages: {nodes}; edges: {edges}")
+    status = "detected" if has_cycle(graph) else "not detected"
+    print(f"Cycle: {status}")
 
 
 if __name__ == "__main__":

@@ -27,7 +27,6 @@ class ConfigTests(unittest.TestCase):
             "version": "1.0.0",
             "output": "graph.png",
             "filter": None,
-            "reverse": False,
         }
         values.update(updates)
         return argparse.Namespace(**values)
