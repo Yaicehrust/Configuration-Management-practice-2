@@ -35,6 +35,13 @@ class RepositoryTests(unittest.TestCase):
         with self.assertRaises(RepositoryFormatError):
             _validate_graph_data({"a": []})
 
+    def test_reverse_dependencies_for_package(self) -> None:
+        repository = TestRepository.load(DATA / "repository.json")
+        dependents = repository.reverse_dependencies(Package("E", "1.0.0"))
+        self.assertEqual(
+            [item.name for item in dependents], ["C", "D"]
+        )
+
     def test_reverse_adjacency(self) -> None:
         repository = TestRepository.load(DATA / "repository.json")
         reverse = repository.reverse_adjacency()

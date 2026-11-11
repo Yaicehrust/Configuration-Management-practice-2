@@ -74,6 +74,24 @@ class GraphTests(unittest.TestCase):
         package_b = Package("B", "1.0.0")
         self.assertEqual(graph[package_b], [])
 
+    def test_reverse_bfs_finds_transitive_dependents(self) -> None:
+        reverse = self.repository.reverse_dependencies
+        root = Package("E", "1.0.0")
+        graph = build_dependency_graph(root, reverse)
+        names = {package.name for package in graph}
+        self.assertEqual(names, {"A", "B", "C", "D", "E"})
+        self.assertTrue(has_cycle(graph))
+
+    def test_reverse_bfs_uses_filter(self) -> None:
+        graph = build_dependency_graph(
+            Package("E", "1.0.0"),
+            self.repository.reverse_dependencies,
+            "D",
+        )
+        names = {package.name for package in graph}
+        self.assertNotIn("D", names)
+        self.assertNotIn("B", names)
+
     def test_filter_cannot_remove_root_package(self) -> None:
         with self.assertRaises(GraphError):
             build_dependency_graph(

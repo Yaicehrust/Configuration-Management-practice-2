@@ -37,6 +37,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--filter", default=None, help="Ignore names containing text."
     )
+    parser.add_argument(
+        "--reverse", action="store_true", help="Show reverse dependencies."
+    )
     return parser
 
 
@@ -96,12 +99,20 @@ def main(argv: list[str] | None = None) -> int:
         print_config(config)
         source = _load_source(config)
         package = Package(config.package, config.version)
-        dependencies = source.direct_dependencies(package)
-        print_dependencies(package, dependencies)
+        if args.reverse:
+            dependents = source.reverse_dependencies(package)
+            print_reverse_dependencies(package, dependents)
+            getter = source.reverse_dependencies
+            title = "Reverse dependency graph"
+        else:
+            dependencies = source.direct_dependencies(package)
+            print_dependencies(package, dependencies)
+            getter = source.package_dependencies
+            title = "Dependency graph"
         graph = build_dependency_graph(
-            package, source.package_dependencies, config.filter_substring
+            package, getter, config.filter_substring
         )
-        _print_graph_report(graph)
+        _print_graph_report(graph, title)
     except (
         ConfigurationError, RepositoryFormatError, RegistryError, GraphError
     ) as error:
@@ -110,10 +121,24 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
-def _print_graph_report(graph: dict[Package, list[Package]]) -> None:
-    """Print the full reachable graph and report cycle handling."""
+def print_reverse_dependencies(
+    package: Package, dependents: list[Package]
+) -> None:
+    """Print packages that directly depend on the selected package."""
+    print(f"\nDirect reverse dependencies of {package.label}:")
+    if not dependents:
+        print("  (none)")
+        return
+    for dependent in dependents:
+        print(f"  - {dependent.label}")
+
+
+def _print_graph_report(
+    graph: dict[Package, list[Package]], title: str
+) -> None:
+    """Print the reachable graph and report cycle handling."""
     nodes, edges = graph_counts(graph)
-    print("\nDependency graph:")
+    print(f"\n{title}:")
     print(format_graph(graph))
     print(f"\nPackages: {nodes}; edges: {edges}")
     status = "detected" if has_cycle(graph) else "not detected"

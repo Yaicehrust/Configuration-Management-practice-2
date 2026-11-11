@@ -57,6 +57,22 @@ class CargoRegistryTests(unittest.TestCase):
         with self.assertRaises(RegistryError):
             client._select_version("demo", "^1.0")
 
+    def test_reads_direct_reverse_dependencies(self) -> None:
+        client = CratesIoClient("https://crates.io")
+        client._request_json = Mock(return_value={
+            "dependencies": [{"version_id": 11}],
+            "versions": [{
+                "id": 11,
+                "crate": "dependent-crate",
+                "num": "1.2.0",
+            }],
+            "meta": {"total": 1},
+        })
+        items = client.reverse_dependencies(Package("target", "1.0.0"))
+        self.assertEqual(
+            items, [Package("dependent-crate", "1.2.0")]
+        )
+
     def test_maps_reverse_dependency_versions(self) -> None:
         result: dict[str, list[str]] = {}
         payload = {

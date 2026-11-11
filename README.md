@@ -113,6 +113,21 @@ The test fixtures include an ordinary graph (`simple.json`), a cycle
 (`cycle.json`), a branching graph (`branching.json`) and a graph combining
 branches, repeated reachability and a cycle (`repository.json`).
 
+## Stage 4: reverse dependencies
+
+Pass `--reverse` to start from the selected package and walk the edges in
+the opposite direction. The first list contains direct dependents; the graph
+also includes transitive dependents. In test mode the JSON adjacency list is
+reversed locally. In real mode the client reads the crates.io
+`reverse_dependencies` endpoint and continues the BFS for every discovered
+crate. The public endpoint is crate-wide, so reverse results are not limited
+to a single version of the selected crate.
+
+```powershell
+python -m src.main --package E --repo tests/data/repository.json `
+  --test-mode --version 1.0.0 --reverse
+```
+
 ## Tests
 
 ```powershell
