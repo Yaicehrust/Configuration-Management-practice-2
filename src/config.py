@@ -5,11 +5,7 @@ from pathlib import Path
 import re
 from urllib.parse import urlparse
 
-
-VERSION_PATTERN = re.compile(
-    r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)"
-    r"(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$"
-)
+from src.semver import parse_version
 PACKAGE_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
 TEST_PACKAGE_PATTERN = re.compile(r"^[A-Z]+$")
 
@@ -86,10 +82,11 @@ def _validate_repository(value: str, test_mode: bool) -> str:
 
 def _validate_version(value: str) -> str:
     """Require an exact semantic version for the selected root package."""
-    if not value or not VERSION_PATTERN.fullmatch(value):
-        raise ConfigurationError(
-            "version must be an exact semantic version, e.g. 1.2.3."
-        )
+    try:
+        parse_version(value)
+    except ValueError as error:
+        message = "version must be an exact semantic version, e.g. 1.2.3."
+        raise ConfigurationError(message) from error
     return value
 
 
